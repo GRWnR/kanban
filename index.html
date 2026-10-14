@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tablero de Tareas</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <strong class="logo">Seguimiento</strong>
+  <select id="boardSelect" aria-label="Tablero"></select>
+  <button id="newBoard">+ Tablero</button>
+  <button id="renameBoard">Renombrar</button>
+  <button id="changeBoardColor">Color</button>
+  <button id="deleteBoard" class="danger">Eliminar</button>
+  <span class="spacer"></span>
+  <button id="manageLabels">🏷 Etiquetas</button>
+</header>
+<main id="board" class="board"></main>
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<script src="app.js"></script>
+</body>
+</html>
