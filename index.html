@@ -16,7 +16,11 @@
   <button id="deleteBoard" class="danger">Eliminar</button>
   <span class="spacer"></span>
   <button id="manageLabels">🏷 Etiquetas</button>
+  <button id="exportData" title="Descargar una copia de todos los tableros">Exportar</button>
+  <button id="importData" title="Restaurar tableros desde una copia">Importar</button>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
 </header>
+<div id="notice" class="notice" role="alert" hidden></div>
 <main id="board" class="board"></main>
 <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
 <script src="app.js"></script>
