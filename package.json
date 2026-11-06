@@ -1,0 +1,22 @@
+{
+  "name": "kanban",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Tablero Kanban con backend Node + SQLite",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file=.env server/index.js",
+    "start": "node --env-file=.env server/index.js",
+    "test": "node --test test/",
+    "hash-password": "node scripts/hash-password.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/rate-limit": "^11.2.2",
+    "@fastify/static": "^10.1.10",
+    "fastify": "^5.12.8"
+  }
+}
