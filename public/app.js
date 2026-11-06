@@ -1,12 +1,8 @@
-"use strict";
-const KEY = "kanban-v1";
+import { uid, color, optColor, newBoard, normalize } from "./normalize.js";
+
+const KEY = "kanban-v1"; // caché local y origen de la migración inicial a la nube
 const $ = s => document.querySelector(s);
-const uid = () => crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const COLORS = ["#61bd4f", "#f2d600", "#ff9f1a", "#eb5a46", "#c377e0", "#0079bf", "#00c2e0", "#51e898"];
-const HEX = /^#[0-9a-f]{6}$/i;
-const color = value => HEX.test(value) ? value : COLORS[5];
-const optColor = value => HEX.test(value) ? value : null;
 const ink = hex => {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
     .map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -15,50 +11,104 @@ const ink = hex => {
 const shade = (hex, f) => "#" + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * f).toString(16).padStart(2, "0")).join("");
 const paint = hex => (hex = optColor(hex)) ? `style="--bg:${hex};--fg:${ink(hex)}"` : "";
 
-function newBoard(name) {
-  return {
-    id: uid(), name, color: COLORS[5],
-    labels: [{ id: uid(), name: "Importante", color: COLORS[3] }, { id: uid(), name: "Mejora", color: COLORS[0] }],
-    columns: ["Por hacer", "En curso", "Hecho"].map(n => ({ id: uid(), name: n, cards: [] }))
-  };
-}
-
-/* Valida y completa un estado leído de localStorage o de un archivo importado. */
-function normalize(s) {
-  if (!s || !Array.isArray(s.boards)) return null;
-  const str = v => typeof v === "string" ? v : "";
-  const id = v => typeof v === "string" && v ? v : uid();
-  const list = v => Array.isArray(v) ? v.filter(x => x && typeof x === "object") : [];
-  const boards = list(s.boards).map(b => {
-    const labels = list(b.labels).map(l => ({ id: id(l.id), name: str(l.name), color: color(l.color) }));
-    const known = new Set(labels.map(l => l.id));
-    return {
-      id: id(b.id), name: str(b.name) || "Tablero", color: color(b.color), labels,
-      columns: list(b.columns).map(c => ({
-        id: id(c.id), name: str(c.name) || "Columna", color: optColor(c.color),
-        cards: list(c.cards).map(k => ({
-          id: id(k.id), title: str(k.title) || "Sin título", desc: str(k.desc),
-          labels: (Array.isArray(k.labels) ? k.labels : []).filter(x => known.has(x)), color: optColor(k.color)
-        }))
-      }))
-    };
-  });
-  return boards.length ? { current: str(s.current), boards } : null;
-}
-
-let state;
-try { state = normalize(JSON.parse(localStorage.getItem(KEY))); } catch { state = null; }
-if (!state) {
-  const b = newBoard("Mi tablero");
-  state = { current: b.id, boards: [b] };
-}
+/* ---------- Estado y sincronización con el servidor ---------- */
+let state = null;     // documento { current, boards[] }
+let version = 0;      // versión del servidor sobre la que se basa `state`
+let dirty = false;    // hay cambios sin enviar
+let saving = false;   // hay un PUT en curso
+let stale = false;    // otro dispositivo o pestaña guardó mientras estábamos ocupados
+let saveTimer = null;
+const SAVE_DELAY = 400, RETRY_DELAY = 5000;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 const notice = msg => { const n = $("#notice"); n.textContent = msg; n.hidden = !msg; };
-const save = () => {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); notice(""); }
-  catch { notice("No se pudieron guardar los cambios en este navegador. Exporta una copia para no perderlos."); }
-};
+const channel = "BroadcastChannel" in window ? new BroadcastChannel("kanban-sync") : null;
+
+const api = (path, { body, ...opts } = {}) => fetch(path, {
+  credentials: "same-origin", ...opts,
+  ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } })
+});
+/* Copia local: respaldo y origen de la migración si el servidor está vacío. */
+const cache = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* sin espacio o bloqueado: no es crítico */ } };
+
 const board = () => state.boards.find(b => b.id === state.current) || state.boards[0];
+const save = () => { cache(); dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(flush, SAVE_DELAY); };
 const update = () => { save(); render(); };
+
+/* Adopta el estado del servidor conservando el tablero que se está viendo en este dispositivo. */
+function applyServer(s, v) {
+  const next = normalize(s);
+  if (!next) return false;
+  if (state && next.boards.some(b => b.id === state.current)) next.current = state.current;
+  state = next; version = v; cache();
+  if (dlg.open) dlg.close();
+  render();
+  return true;
+}
+
+async function flush() {
+  saveTimer = null; // este temporizador ya se disparó
+  if (saving || !dirty) return;
+  saving = true; dirty = false;
+  try {
+    const res = await api("/api/state", { method: "PUT", body: { state, version } });
+    if (res.ok) {
+      version = (await res.json()).version;
+      notice("");
+      channel?.postMessage("saved");
+    } else if (res.status === 409) {
+      const j = await res.json();
+      if (applyServer(j.state, j.version)) notice("Otro dispositivo guardó cambios antes que tú: se cargó su versión. Repite tu último cambio si no aparece.");
+    } else if (res.status === 401) {
+      dirty = true;
+      await login("La sesión ha caducado.");
+    } else {
+      notice("El servidor rechazó los cambios. Exporta una copia para no perderlos.");
+    }
+  } catch {
+    dirty = true;
+    notice("Sin conexión con el servidor. Los cambios se enviarán cuando vuelva.");
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, RETRY_DELAY);
+  } finally {
+    saving = false;
+    if (dirty && !saveTimer) saveTimer = setTimeout(flush, SAVE_DELAY);
+    else if (!dirty && stale) refresh();
+  }
+}
+
+/* Pide el estado al servidor y lo adopta si otro dispositivo o pestaña lo cambió. */
+async function refresh() {
+  if (dirty || saving || drag || dlg.open) { stale = true; return; }
+  stale = false;
+  try {
+    const res = await api("/api/state");
+    if (res.status === 401) return void await login();
+    if (!res.ok) return;
+    const j = await res.json();
+    if (j.state && j.version !== version) applyServer(j.state, j.version);
+  } catch { /* sin conexión: se reintentará al volver a la pestaña */ }
+}
+
+/* Carga inicial: login si hace falta y migración de localStorage si el servidor está vacío. */
+async function init() {
+  for (;;) {
+    let res;
+    try { res = await api("/api/state"); }
+    catch { notice("No se puede conectar con el servidor. Reintentando…"); await sleep(RETRY_DELAY); continue; }
+    if (res.status === 401) { notice(""); await login(); continue; }
+    if (!res.ok) { notice(`Error del servidor (${res.status}). Reintentando…`); await sleep(RETRY_DELAY); continue; }
+    const j = await res.json();
+    notice("");
+    version = j.version;
+    state = normalize(j.state);
+    if (state) return void cache();
+    let local = null;
+    try { local = normalize(JSON.parse(localStorage.getItem(KEY))); } catch { /* sin copia local */ }
+    if (!local) { const b = newBoard("Mi tablero"); local = { current: b.id, boards: [b] }; }
+    state = local;
+    return void save();
+  }
+}
 
 /* ---------- Diálogos ---------- */
 const dlg = $("#dlg"), form = $("#dlgForm");
@@ -92,6 +142,32 @@ function colorDlg(title, current, fallback, onPick) {
     f => { onPick(optColor(f.color.value)); });
   form.querySelector("[data-clear]").onclick = () => { onPick(null); dlg.close(); };
 }
+
+/* Diálogo de acceso: no se puede cerrar con Esc porque la app no funciona sin sesión. */
+function showLogin(message) {
+  return new Promise(resolve => {
+    const block = e => e.preventDefault();
+    dlg.addEventListener("cancel", block);
+    openDlg(`<h2>Iniciar sesión</h2>
+      <p id="loginErr" class="form-error" role="alert"${message ? "" : " hidden"}>${esc(message)}</p>
+      <label>Contraseña<input type="password" name="pw" required autocomplete="current-password"></label>
+      <div class="actions"><span class="spacer"></span><button class="primary">Entrar</button></div>`,
+      f => {
+        const err = $("#loginErr"), pw = f.pw;
+        const fail = text => { err.textContent = text; err.hidden = false; pw.value = ""; pw.focus(); };
+        api("/api/login", { method: "POST", body: { password: pw.value } }).then(res => {
+          if (!res.ok) return fail(res.status === 429 ? "Demasiados intentos. Espera un minuto." : "Contraseña incorrecta.");
+          dlg.removeEventListener("cancel", block);
+          dlg.close();
+          resolve();
+        }).catch(() => fail("No se pudo conectar con el servidor."));
+        return false; // el diálogo se cierra solo cuando el servidor acepta la contraseña
+      });
+    form.pw.focus();
+  });
+}
+let loginPromise = null; // evita abrir dos diálogos si varias peticiones reciben 401 a la vez
+const login = message => loginPromise ??= showLogin(message).finally(() => { loginPromise = null; });
 
 /* ---------- Render ---------- */
 function render() {
@@ -282,16 +358,25 @@ boardEl.addEventListener("dragend", e => {
   update();
 });
 
-/* ---------- Sincronización entre pestañas ---------- */
-window.addEventListener("storage", e => {
-  if (e.key !== KEY || drag) return;
-  let next;
-  try { next = normalize(JSON.parse(e.newValue)); } catch { next = null; }
-  if (!next) return;
-  next.current = state.current;
-  state = next;
-  if (dlg.open) dlg.close();
-  render();
-});
+/* ---------- Sincronización entre pestañas y dispositivos ---------- */
+if (channel) channel.onmessage = () => refresh();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+window.addEventListener("online", () => { if (dirty) flush(); });
+dlg.addEventListener("close", () => { if (stale) refresh(); });
 
+$("#logout").onclick = async () => {
+  clearTimeout(saveTimer);
+  while (saving) await sleep(50);
+  if (dirty) await flush();
+  if (dirty) return notice("No se puede cerrar la sesión: hay cambios sin enviar al servidor.");
+  try { await api("/api/logout", { method: "POST" }); } catch { /* sin conexión: se limpia igualmente en local */ }
+  try { localStorage.removeItem(KEY); } catch { /* nada que limpiar */ }
+  location.reload();
+};
+
+/* ---------- Arranque ---------- */
+const shell = document.querySelectorAll(".topbar, #board");
+shell.forEach(el => el.inert = true); // sin datos cargados no se puede interactuar
+await init();
+shell.forEach(el => el.inert = false);
 render();

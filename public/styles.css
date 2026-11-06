@@ -31,7 +31,8 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
 #dlgForm{padding:16px;display:flex;flex-direction:column;gap:10px}
 #dlgForm h2{margin:0;font-size:18px}
 #dlgForm label{display:flex;flex-direction:column;gap:4px;font-weight:600}
-#dlgForm input[type=text],#dlgForm textarea,#dlgForm select{padding:7px;border:1px solid #c1c7d0;border-radius:4px;font-weight:400}
+.form-error{margin:0;color:#c9372c;font-weight:600}
+#dlgForm input[type=text],#dlgForm input[type=password],#dlgForm textarea,#dlgForm select{padding:7px;border:1px solid #c1c7d0;border-radius:4px;font-weight:400}
 #dlgForm textarea{min-height:110px;resize:vertical}
 .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
 .actions .spacer{flex:1}

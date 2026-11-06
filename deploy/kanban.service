@@ -1,0 +1,22 @@
+[Unit]
+Description=Kanban (Node + SQLite)
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/srv/kanban
+EnvironmentFile=/srv/kanban/.env
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=3
+
+# Endurecimiento: solo puede escribir en el directorio de datos
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kanban
+
+[Install]
+WantedBy=multi-user.target
