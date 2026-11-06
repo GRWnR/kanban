@@ -2,7 +2,9 @@
 
 Se hace **una sola vez** a mano. Después, cada push a `main` despliega solo (`.github/workflows/deploy.yml`).
 
-Los comandos son para Ubuntu 24.04 (o similar) y se ejecutan por SSH. Salvo que se indique otra cosa, como `root`.
+Los comandos son para Ubuntu 24.04 (o similar) y se ejecutan como `root`, por SSH o desde la **terminal del navegador de Hostinger** (hPanel → VPS → Terminal), que sirve igual desde cualquier dispositivo y no depende de ninguna clave de tu PC.
+
+La clave de despliegue del paso 3 **se añade** al usuario `deploy`; no cambia ni restringe tu acceso como root.
 
 ## 1. DNS
 En Hostinger (hPanel → Dominios → Zona DNS de `grwnr.com`) crea un registro **A**: nombre `kanban`, valor la IP del VPS (y un **AAAA** si el VPS tiene IPv6). Comprueba con `nslookup kanban.grwnr.com`.
@@ -22,7 +24,7 @@ ufw allow OpenSSH
 ufw allow "Nginx Full"
 ufw --force enable
 ```
-Sin contraseñas por SSH: en `/etc/ssh/sshd_config` pon `PasswordAuthentication no` y `PermitRootLogin prohibit-password` (solo con clave) y ejecuta `systemctl reload ssh`. **Antes**, comprueba en otra terminal que entras con tu clave.
+**Endurecimiento de SSH (opcional, no lo hagas por defecto).** Desactivar `PasswordAuthentication` o el login de root con contraseña mejora la seguridad, pero puede dejarte sin acceso si la terminal del navegador de Hostinger entra por SSH con contraseña. Solo hazlo después de comprobar cómo entra esa terminal y con una sesión de root ya abierta. Mientras tanto, la protección es `ufw`, `unattended-upgrades` y una contraseña de root larga.
 
 ## 3. Claves
 **a) Clave de GitHub Actions → VPS** (en tu PC, sin contraseña, solo para esto):
