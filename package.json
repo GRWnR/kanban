@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "node --watch --env-file=.env server/index.js",
     "start": "node --env-file=.env server/index.js",
-    "test": "node --test test/",
+    "test": "node --test \"test/**/*.test.js\"",
     "hash-password": "node scripts/hash-password.js"
   },
   "dependencies": {
