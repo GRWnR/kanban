@@ -42,3 +42,5 @@ npm test
 - `server/`: `app.js` (rutas), `db.js` (SQLite), `auth.js` (scrypt y sesiones), `index.js` (arranque).
 - `scripts/hash-password.js`: genera el hash de la contraseña.
 - `test/`: pruebas con `node:test`.
+- `deploy/`: configuración del VPS (systemd, nginx, copias de seguridad) y la guía de montaje en `deploy/README.md`.
+- `.github/workflows/`: `ci.yml` (pruebas en PRs y ramas) y `deploy.yml` (pruebas y despliegue al hacer push a `main`).
